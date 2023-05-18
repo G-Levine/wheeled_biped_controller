@@ -23,11 +23,10 @@ generate_parameter_library(
   src/wheeled_biped_controller_parameters.yaml # path to input yaml file
 )
 
-add_executable(minimal_node src/turtlesim.cpp)
-target_link_libraries(minimal_node PRIVATE
-  rclcpp::rclcpp
-  turtlesim_parameters
-)
+target_link_libraries(wheeled_biped_controller wheeled_biped_controller_parameters)
+
+target_include_directories(wheeled_biped_controller PRIVATE include)
+
 ament_target_dependencies(
   wheeled_biped_controller
   controller_interface
@@ -38,8 +37,6 @@ ament_target_dependencies(
   rclcpp_lifecycle
   geometry_msgs
 )
-
-target_include_directories(wheeled_biped_controller PRIVATE include)
 
 pluginlib_export_plugin_description_file(controller_interface wheeled_biped_controller.xml)
 

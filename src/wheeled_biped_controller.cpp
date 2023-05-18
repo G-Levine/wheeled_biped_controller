@@ -94,7 +94,7 @@ namespace wheeled_biped_controller
   }
 
   controller_interface::return_type WheeledBipedController::update(
-      const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+      const rclcpp::Time & time, const rclcpp::Duration & period)
   {
     auto command = rt_command_ptr_.readFromRT();
     if (!command)
@@ -104,10 +104,13 @@ namespace wheeled_biped_controller
     }
     // TODO: sanitize command
 
-    // update desired velocities
-    x_vel_des_ = command.linear.x;
-    yaw_vel_des_ = command.angular.z;
-    z_vel_des_ = command.linear.z;
+    // update desired velocities if the command exists
+    if (command->get())
+    {
+      x_vel_des_ = command->get()->linear.x;
+      yaw_vel_des_ = command->get()->angular.z;
+      z_vel_des_ = command->get()->linear.z;
+    }
 
     // integrate the desired velocities to obtain desired positions
     x_des_ += x_vel_des_ * period.seconds();
@@ -146,7 +149,7 @@ namespace wheeled_biped_controller
     right_wheel_vel = -right_wheel_vel;
 
     // TODO: convert orientation to Euler angles
-    double pitch = 0.0;
+    pitch_ = 0.0;
 
     // compensate for base_link and leg orientation/velocity in the wheel position/velocity
     right_wheel_pos = right_wheel_pos + pitch_ + right_hip_pos;
@@ -164,7 +167,9 @@ namespace wheeled_biped_controller
 
     // calculate x_, yaw_, x_vel_, and y_vel_ from tangential wheel positions/velocities
     x_ = 0.5 * (right_wheel_tangential_pos + left_wheel_tangential_pos);
-    yaw_ = 0.5 * (right_wheel_tangential_pos - left_wheel_tangential_pos) / params_.wheel_separation;
+    yaw_ = 0.5 * (right_wheel_tangential_pos - left_wheel_tangential_pos) / (0.5 * params_.wheel_separation);
+    x_vel_ = 0.5 * (right_wheel_tangential_vel + left_wheel_tangential_vel);
+    yaw_vel_ = 0.5 * (right_wheel_tangential_vel - left_wheel_tangential_vel) / (0.5 * params_.wheel_separation);
 
     // estimate z_ height
     double left_leg_length = 2.0 * cos(left_hip_pos) * params_.leg_link_length;

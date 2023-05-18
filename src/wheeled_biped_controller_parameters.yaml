@@ -1,132 +1,132 @@
 wheeled_biped_controller:
   left_wheel_name: {
     type: string,
-    default: 'left_wheel',
+    default_value: 'left_wheel',
     description: 'Name of the left wheel joint'
   }
   right_wheel_name: {
     type: string,
-    default: 'right_wheel',
+    default_value: 'right_wheel',
     description: 'Name of the right wheel joint'
   }
   left_hip_name: {
     type: string,
-    default: 'left_hip',
+    default_value: 'left_hip',
     description: 'Name of the left hip joint'
   }
   right_hip_name: {
     type: string,
-    default: 'right_hip',
+    default_value: 'right_hip',
     description: 'Name of the right hip joint'
   }
   left_knee_name: {
     type: string,
-    default: 'left_knee',
+    default_value: 'left_knee',
     description: 'Name of the left knee joint'
   }
   right_knee_name: {
     type: string,
-    default: 'right_knee',
+    default_value: 'right_knee',
     description: 'Name of the right knee joint'
   }
 
   imu_sensor_name: {
     type: string,
-    default: 'imu_sensor',
+    default_value: 'imu_sensor',
     description: 'Name of the IMU sensor'
   }
 
   wheel_radius: {
     type: double,
-    default: 0.1,
+    default_value: 0.1,
     description: 'Radius of the wheel (m)'
   }
   wheel_separation: {
     type: double,
-    default: 0.281,
+    default_value: 0.281,
     description: 'Distance between the wheels (m)'
   }
   leg_link_length: {
     type: double,
-    default: 0.225,
+    default_value: 0.225,
     description: 'Length of the leg link (m)'
   }
   z_min: {
     type: double,
-    default: 0.07814,
+    default_value: 0.07814,
     description: 'Minimum standing height of the robot (m)'
   }
   z_max: {
     type: double,
-    default: 0.275,
+    default_value: 0.275,
     description: 'Maximum standing height of the robot (m)'
   }
   contact_force_threshold: {
     type: double,
-    default: 5.0,
+    default_value: 5.0,
     description: 'Threshold for the contact force (N)'
   }
   friction_coefficient: {
     type: double,
-    default: 1.0,
+    default_value: 1.0,
     description: 'Friction coefficient for the wheels'
   }
 
   hip_kp: {
     type: double,
-    default: 50.0,
+    default_value: 50.0,
     description: 'Proportional gain for the hip joint (N*m/rad)'
   }
   hip_kd: {
     type: double,
-    default: 5.0,
+    default_value: 5.0,
     description: 'Derivative gain for the hip joint (N*m*s/rad)'
   }
 
   yaw_kp: {
     type: double,
-    default: 1.0,
+    default_value: 1.0,
     description: 'Proportional gain for the yaw controller (N*m/rad)'
   }
   yaw_kd: {
     type: double,
-    default: 1.0,
+    default_value: 1.0,
     description: 'Derivative gain for the yaw controller (N*m*s/rad)'
   }
 
   x_kps: {
     type: double_array,
-    default: [7.0, 7.0],
+    default_value: [7.0, 7.0],
     description: 'Proportional gains for the balancing controller in the x axis (N*m/m)'
   }
   pitch_kps: {
     type: double_array,
-    default: [30.0, 30.0],
+    default_value: [30.0, 30.0],
     description: 'Proportional gains for the balancing controller in the pitch axis (N*m/rad)'
   }
   x_kds: {
     type: double_array,
-    default: [3.0, 3.0],
+    default_value: [3.0, 3.0],
     description: 'Derivative gains for the balancing controller in the x axis (N*m*s/m)'
   }
   pitch_kds: {
     type: double_array,
-    default: [5.0, 5.0],
+    default_value: [5.0, 5.0],
     description: 'Derivative gains for the balancing controller in the pitch axis (N*m*s/rad)'
   }
   pitch_offsets: {
     type: double_array,
-    default: [0.0, 0.0],
+    default_value: [0.0, 0.0],
     description: 'Offsets for the balancing controller in the pitch axis (rad)'
   }
   balancing_gain_heights: {
     type: double_array,
-    default: [0.07814, 0.3182],
+    default_value: [0.07814, 0.3182],
     description: 'Heights for the balancing controller corresponding to the arrays of gains (m)'
   }
 
   publish_rate: {
     type: double,
-    default: 50.0,
+    default_value: 50.0,
     description: 'Rate at which to publish the controller state (Hz)'
   }
