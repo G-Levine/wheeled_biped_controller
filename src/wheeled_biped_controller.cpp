@@ -11,6 +11,8 @@
 #include "rclcpp/logging.hpp"
 #include "rclcpp/qos.hpp"
 
+#define EPSILON 1e-6
+
 namespace wheeled_biped_controller
 {
   WheeledBipedController::WheeledBipedController()
@@ -117,17 +119,24 @@ namespace wheeled_biped_controller
       z_vel_des_ = 0.0;
     z_des_ = std::clamp(z_des_, params_.z_min, params_.z_max);
 
-    // TODO: read joint and IMU states from hardware interface
-    double right_hip_pos = 0.0;
-    double right_hip_vel = 0.0;
-    double right_hip_torque = 0.0;
-    double right_wheel_pos = 0.0;
-    double right_wheel_vel = 0.0;
-    double left_hip_pos = 0.0;
-    double left_hip_vel = 0.0;
-    double left_hip_torque = 0.0;
-    double left_wheel_pos = 0.0;
-    double left_wheel_vel = 0.0;
+    // read joint states from hardware interface
+    double right_hip_pos = state_interfaces_map_.at(params_.right_hip_name).at("position")->get_value();
+    double right_hip_vel = state_interfaces_map_.at(params_.right_hip_name).at("velocity")->get_value();
+    double right_hip_torque = state_interfaces_map_.at(params_.right_hip_name).at("effort")->get_value();
+    double right_wheel_pos = state_interfaces_map_.at(params_.right_wheel_name).at("position")->get_value();
+    double right_wheel_vel = state_interfaces_map_.at(params_.right_wheel_name).at("velocity")->get_value();
+    double left_hip_pos = state_interfaces_map_.at(params_.left_hip_name).at("position")->get_value();
+    double left_hip_vel = state_interfaces_map_.at(params_.left_hip_name).at("velocity")->get_value();
+    double left_hip_torque = state_interfaces_map_.at(params_.left_hip_name).at("effort")->get_value();
+    double left_wheel_pos = state_interfaces_map_.at(params_.left_wheel_name).at("position")->get_value();
+    double left_wheel_vel = state_interfaces_map_.at(params_.left_wheel_name).at("velocity")->get_value();
+
+    // read IMU states from hardware interface
+    pitch_vel_ = state_interfaces_map_.at(params_.imu_sensor_name).at("angular_velocity.y")->get_value();
+    double orientation_w = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.w")->get_value();
+    double orientation_x = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.x")->get_value();
+    double orientation_y = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.y")->get_value();
+    double orientation_z = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.z")->get_value();
 
     // compensate for opposite directions on left/right (flip so everything is in the same direction)
     right_hip_pos = -right_hip_pos;
@@ -162,15 +171,15 @@ namespace wheeled_biped_controller
     double right_leg_length = 2.0 * cos(right_hip_pos) * params_.leg_link_length;
     z_ = 0.5 * (left_leg_length + right_leg_length);
 
-    // TODO: estimate contact forces
-    double contact_force_left = 0.0;
-    double contact_force_right = 0.0;
+    // estimate contact forces
+    double left_wheel_normal_force = -left_hip_torque / (2.0 * sin(left_hip_pos) * params_.leg_link_length + EPSILON);
+    double right_wheel_normal_force = -right_hip_torque / (2.0 * sin(right_hip_pos) * params_.leg_link_length + EPSILON);
 
     double left_wheel_torque_cmd = 0.0;
     double right_wheel_torque_cmd = 0.0;
 
     // if contact forces are too small, assume the robot is in the air and reset the desired state
-    if (contact_force_left < params_.contact_force_threshold || contact_force_right < params_.contact_force_threshold)
+    if (left_wheel_normal_force < params_.contact_force_threshold || right_wheel_normal_force < params_.contact_force_threshold)
     {
       x_des_ = x_;
       yaw_des_ = yaw_;
@@ -181,20 +190,20 @@ namespace wheeled_biped_controller
     else
     {
       // get controller gains and pitch offset for the current z height
-      double x_kp = interpolate(z_, params.balancing_gain_heights, params_.x_kps);
-      double x_kd = interpolate(z_, params.balancing_gain_heights, params_.x_kds);
-      double pitch_kp = interpolate(z_, params.balancing_gain_heights, params_.pitch_kps);
-      double pitch_kd = interpolate(z_, params.balancing_gain_heights, params_.pitch_kds);
-      pitch_des_ = interpolate(z_, params.balancing_gain_heights, params_.pitch_offsets);
+      double x_kp = interpolate(z_, params_.balancing_gain_heights, params_.x_kps);
+      double x_kd = interpolate(z_, params_.balancing_gain_heights, params_.x_kds);
+      double pitch_kp = interpolate(z_, params_.balancing_gain_heights, params_.pitch_kps);
+      double pitch_kd = interpolate(z_, params_.balancing_gain_heights, params_.pitch_kds);
+      pitch_des_ = interpolate(z_, params_.balancing_gain_heights, params_.pitch_offsets);
 
       // apply balancing/yaw controllers
       double balance_control_force = linear_controller<4>({x_, x_vel_, pitch_, pitch_vel_},
                                                          {x_des_, x_vel_des_, pitch_des_, pitch_vel_des_},
                                                          {x_kp, x_kd, pitch_kp, pitch_kd});
-      double yaw_control_force = linear_controller<2>({yaw_, yaw_vel_}, {yaw_des_, yaw_vel_des_}, {yaw_kp_, yaw_kd_});
+      double yaw_control_force = linear_controller<2>({yaw_, yaw_vel_}, {yaw_des_, yaw_vel_des_}, {params_.yaw_kp, params_.yaw_kd});
 
       // give the balance control force strict priority over the yaw control force
-      double friction_max_force = 2.0 * fminf(contact_force_left, contact_force_right) * params_.friction_coefficient;
+      double friction_max_force = 2.0 * fmaxf(0.0, fminf(left_wheel_normal_force, right_wheel_normal_force)) * params_.friction_coefficient;
       balance_control_force = std::clamp(balance_control_force, -friction_max_force, friction_max_force);
       double friction_margin_force = abs(friction_max_force - abs(balance_control_force));
       yaw_control_force = std::clamp(yaw_control_force, -friction_margin_force, friction_margin_force);
@@ -216,13 +225,21 @@ namespace wheeled_biped_controller
     right_wheel_torque_cmd = -right_wheel_torque_cmd;
     right_hip_pos_cmd = -right_hip_pos_cmd;
 
-    // TODO: write commands to hardware interface
+    // write commands to hardware interface
+    command_interfaces_map_.at(params_.left_hip_name).at("position")->set_value(left_hip_pos_cmd);
+    command_interfaces_map_.at(params_.left_hip_name).at("kp")->set_value(params_.hip_kp);
+    command_interfaces_map_.at(params_.left_hip_name).at("kd")->set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.right_hip_name).at("position")->set_value(right_hip_pos_cmd);
+    command_interfaces_map_.at(params_.right_hip_name).at("kp")->set_value(params_.hip_kp);
+    command_interfaces_map_.at(params_.right_hip_name).at("kd")->set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.left_wheel_name).at("effort")->set_value(left_wheel_torque_cmd);
+    command_interfaces_map_.at(params_.right_wheel_name).at("effort")->set_value(right_wheel_torque_cmd);
 
     // TODO: publish state if enough time has passed since the last publish
-    if ((time.seconds() - last_publish_time_) > 1.0 / params_.publish_rate)
-    {
-      last_publish_time_ = time.seconds();
-    }
+    // if ((time - last_publish_time_) > 1.0 / params_.publish_rate)
+    // {
+    //   last_publish_time_ = time;
+    // }
 
     return controller_interface::return_type::OK;
   }

@@ -30,6 +30,12 @@ wheeled_biped_controller:
     description: 'Name of the right knee joint'
   }
 
+  imu_sensor_name: {
+    type: string,
+    default: 'imu_sensor',
+    description: 'Name of the IMU sensor'
+  }
+
   wheel_radius: {
     type: double,
     default: 0.1,

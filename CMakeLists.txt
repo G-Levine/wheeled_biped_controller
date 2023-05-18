@@ -16,7 +16,18 @@ find_package(realtime_tools REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(generate_parameter_library REQUIRED)
 
+generate_parameter_library(
+  wheeled_biped_controller_parameters # cmake target name for the parameter library
+  src/wheeled_biped_controller_parameters.yaml # path to input yaml file
+)
+
+add_executable(minimal_node src/turtlesim.cpp)
+target_link_libraries(minimal_node PRIVATE
+  rclcpp::rclcpp
+  turtlesim_parameters
+)
 ament_target_dependencies(
   wheeled_biped_controller
   controller_interface
