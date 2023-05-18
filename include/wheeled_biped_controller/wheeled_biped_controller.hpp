@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <array>
 
 #include "controller_interface/controller_interface.hpp"
 #include "rclcpp/subscription.hpp"
@@ -19,70 +20,44 @@ namespace wheeled_biped_controller
   class WheeledBipedController : public controller_interface::ControllerInterface
   {
   public:
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     WheeledBipedController();
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     ~WheeledBipedController() = default;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::InterfaceConfiguration command_interface_configuration() const override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::InterfaceConfiguration state_interface_configuration() const override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::CallbackReturn on_init() override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::CallbackReturn on_configure(
         const rclcpp_lifecycle::State &previous_state) override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::CallbackReturn on_activate(
         const rclcpp_lifecycle::State &previous_state) override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::CallbackReturn on_deactivate(
         const rclcpp_lifecycle::State &previous_state) override;
 
-    WHEELED_BIPED_CONTROLLER_PUBLIC
     controller_interface::return_type update(
         const rclcpp::Time &time, const rclcpp::Duration &period) override;
 
   protected:
+    std::shared_ptr<ParamListener> param_listener_;
+    Params params_;
+
     // Utility functions
-    double interpolate(double x, std::vector<double> x_vals, std::vector<double> y_vals);
-    double constrain(double x, double min, double max);
+    double interpolate(double x, const std::vector<double>& x_vals, const std::vector<double>& y_vals);
+
+    template <size_t N>
+    double linear_controller(const std::array<double, N> &state,
+                             const std::array<double, N> &desired_state,
+                             const std::array<double, N> &gains);
 
     realtime_tools::RealtimeBuffer<std::shared_ptr<CmdType>> rt_command_ptr_;
     rclcpp::Subscription<CmdType>::SharedPtr cmd_subscriber_;
 
-    double publish_rate_;
-
-    // Parameters
-    // - Physical parameters
-    double wheel_radius_;
-    double wheel_separation_;
-    double leg_link_length_;
-    double z_min_;
-    double z_max_;
-    // - Controller parameters
-    // -- Balancing controller
-    std::vector<double> pitch_kps_;
-    std::vector<double> pitch_kds_;
-    std::vector<double> x_kps_;
-    std::vector<double> x_kds_;
-    std::vector<double> balancing_gain_heights;
-    // -- Yaw controller
-    double yaw_kp_;
-    double yaw_kd_;
-    // -- Height controller
-    double hip_kp_;
-    double hip_kd_;
-    // -- Contact state estimator
-    double contact_force_threshold_;
-    double friction_coefficient_;
+    double last_publish_time_;
 
     // State variables
     // - Current state
@@ -96,9 +71,7 @@ namespace wheeled_biped_controller
     double yaw_vel_;
     // -- Height controller
     double z_;
-    // -- Contact state estimator
-    double contact_force_left_;
-    double contact_force_right_;
+    double z_vel_;
     // -- Odometry state estimator
     double odom_x_;
     double odom_y_;
@@ -115,6 +88,7 @@ namespace wheeled_biped_controller
     double yaw_vel_des_;
     // -- Height controller
     double z_des_;
+    double z_vel_des_;
   };
 
 } // namespace wheeled_biped_controller

@@ -108,6 +108,11 @@ wheeled_biped_controller:
     default: [5.0, 5.0],
     description: 'Derivative gains for the balancing controller in the pitch axis (N*m*s/rad)'
   }
+  pitch_offsets: {
+    type: double_array,
+    default: [0.0, 0.0],
+    description: 'Offsets for the balancing controller in the pitch axis (rad)'
+  }
   balancing_gain_heights: {
     type: double_array,
     default: [0.07814, 0.3182],
