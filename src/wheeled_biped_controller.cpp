@@ -141,6 +141,11 @@ namespace wheeled_biped_controller
       const rclcpp_lifecycle::State & /*previous_state*/)
   {
     rt_command_ptr_ = realtime_tools::RealtimeBuffer<std::shared_ptr<CmdType>>(nullptr);
+    for (auto& command_interface : command_interfaces_)
+    {
+      command_interface.set_value(0.0);
+    }
+    RCLCPP_INFO(get_node()->get_logger(), "deactivate successful");
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -211,14 +216,22 @@ namespace wheeled_biped_controller
     right_wheel_pos = -right_wheel_pos;
     right_wheel_vel = -right_wheel_vel;
 
-    // TODO: convert orientation to Euler angles
-    pitch_ = 0.0;
+    // convert orientation to Euler angles
+    tf2::Quaternion q(
+        orientation_x,
+        orientation_y,
+        orientation_z,
+        orientation_w);
+    tf2::Matrix3x3 m(q);
+    double imu_roll, imu_pitch, imu_yaw;
+    m.getRPY(imu_roll, imu_pitch, imu_yaw);
+    pitch_ = imu_pitch;
 
     // compensate for base_link and leg orientation/velocity in the wheel position/velocity
-    right_wheel_pos = right_wheel_pos + pitch_ + right_hip_pos;
-    right_wheel_vel = right_wheel_vel + pitch_vel_ + right_hip_vel;
-    left_wheel_pos = left_wheel_pos + pitch_ + left_hip_pos;
-    left_wheel_vel = left_wheel_vel + pitch_vel_ + left_hip_vel;
+    right_wheel_pos = right_wheel_pos + pitch_ - right_hip_pos;
+    right_wheel_vel = right_wheel_vel + pitch_vel_ - right_hip_vel;
+    left_wheel_pos = left_wheel_pos + pitch_ - left_hip_pos;
+    left_wheel_vel = left_wheel_vel + pitch_vel_ - left_hip_vel;
 
     // calculate tangential position and velocity for each wheel
     double right_wheel_tangential_pos = right_wheel_pos * params_.wheel_radius;
@@ -271,7 +284,7 @@ namespace wheeled_biped_controller
       double yaw_control_force = linear_controller<2>({yaw_, yaw_vel_}, {yaw_des_, yaw_vel_des_}, {params_.yaw_kp, params_.yaw_kd});
 
       // give the balance control force strict priority over the yaw control force
-      double friction_max_force = 2.0 * fmaxf(0.0, fminf(left_wheel_normal_force, right_wheel_normal_force)) * params_.friction_coefficient;
+      double friction_max_force = abs(2.0 * fmaxf(0.0, fminf(left_wheel_normal_force, right_wheel_normal_force)) * params_.friction_coefficient);
       balance_control_force = std::clamp(balance_control_force, -friction_max_force, friction_max_force);
       double friction_margin_force = abs(friction_max_force - abs(balance_control_force));
       yaw_control_force = std::clamp(yaw_control_force, -friction_margin_force, friction_margin_force);
@@ -294,14 +307,14 @@ namespace wheeled_biped_controller
     right_hip_pos_cmd = -right_hip_pos_cmd;
 
     // write commands to hardware interface
-    // command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_cmd);
-    // command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(params_.hip_kp);
-    // command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(params_.hip_kd);
-    // command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_cmd);
-    // command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(params_.hip_kp);
-    // command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(params_.hip_kd);
-    // command_interfaces_map_.at(params_.left_wheel_name).at("effort").get().set_value(left_wheel_torque_cmd);
-    // command_interfaces_map_.at(params_.right_wheel_name).at("effort").get().set_value(right_wheel_torque_cmd);
+    command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_cmd);
+    command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(params_.hip_kp);
+    command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_cmd);
+    command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(params_.hip_kp);
+    command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.left_wheel_name).at("effort").get().set_value(left_wheel_torque_cmd);
+    command_interfaces_map_.at(params_.right_wheel_name).at("effort").get().set_value(right_wheel_torque_cmd);
 
     // publish state if enough time has passed since the last publish
     if ((time - last_publish_time_).seconds() > 1.0 / params_.publish_rate)
@@ -311,8 +324,8 @@ namespace wheeled_biped_controller
       // std::cout << "publishing state" << std::endl;
 
       // Log the state
-      RCLCPP_INFO(get_node()->get_logger(), "x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f",
-                  x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_);
+      RCLCPP_INFO(get_node()->get_logger(), "rate: %f, x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f, left_wheel_normal_force: %f, right_wheel_normal_force: %f",
+                  1.0 / period.seconds(), x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_, left_wheel_normal_force, right_wheel_normal_force);
 
       // if (realtime_odometry_publisher_->trylock())
       // {
