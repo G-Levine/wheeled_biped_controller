@@ -317,7 +317,7 @@ namespace wheeled_biped_controller
     command_interfaces_map_.at(params_.right_wheel_name).at("effort").get().set_value(right_wheel_torque_cmd);
 
     // publish state if enough time has passed since the last publish
-    if ((time - last_publish_time_).seconds() > 1.0 / params_.publish_rate)
+    if (params_.publish_rate && (time - last_publish_time_).seconds() > 1.0 / params_.publish_rate)
     {
       last_publish_time_ = time;
 
