@@ -29,7 +29,7 @@ namespace wheeled_biped_controller
       param_listener_ = std::make_shared<ParamListener>(get_node());
       params_ = param_listener_->get_params();
     }
-    catch (const std::exception & e)
+    catch (const std::exception &e)
     {
       fprintf(stderr, "Exception thrown during init stage with message: %s \n", e.what());
       return controller_interface::CallbackReturn::ERROR;
@@ -41,8 +41,6 @@ namespace wheeled_biped_controller
   controller_interface::CallbackReturn WheeledBipedController::on_configure(
       const rclcpp_lifecycle::State & /*previous_state*/)
   {
-    // TODO: read parameters from yaml file
-
     x_des_ = 0.0;
     x_vel_des_ = 0.0;
     pitch_des_ = 0.0;
@@ -52,12 +50,47 @@ namespace wheeled_biped_controller
     z_des_ = params_.z_min;
     z_vel_des_ = 0.0;
 
-    last_publish_time_ = 0.0;
+    last_publish_time_ = get_node()->now();
 
+    // Initialize the command subscriber
     cmd_subscriber_ = get_node()->create_subscription<CmdType>(
         "/cmd_vel", rclcpp::SystemDefaultsQoS(),
         [this](const CmdType::SharedPtr msg)
         { rt_command_ptr_.writeFromNonRT(msg); });
+
+    // Initialize the publishers
+    odometry_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
+        "/odom", rclcpp::SystemDefaultsQoS());
+    realtime_odometry_publisher_ =
+        std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
+            odometry_publisher_);
+
+    odometry_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
+        "/tf", rclcpp::SystemDefaultsQoS());
+    realtime_odometry_transform_publisher_ =
+        std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
+            odometry_transform_publisher_);
+
+    joint_state_publisher_ = get_node()->create_publisher<sensor_msgs::msg::JointState>(
+        "/joint_states", rclcpp::SystemDefaultsQoS());
+    realtime_joint_state_publisher_ =
+        std::make_shared<realtime_tools::RealtimePublisher<sensor_msgs::msg::JointState>>(
+            joint_state_publisher_);
+
+    base_link_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
+        "/tf", rclcpp::SystemDefaultsQoS());
+    realtime_base_link_transform_publisher_ =
+        std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
+            base_link_transform_publisher_);
+
+    auto & odometry_message = realtime_odometry_publisher_->msg_;
+    odometry_message.header.frame_id = "odom";
+    odometry_message.child_frame_id = "base_link";
+
+    auto & base_link_transform_publisher_message = realtime_base_link_transform_publisher_->msg_;
+    base_link_transform_publisher_message.transforms.resize(1);
+    base_link_transform_publisher_message.transforms[0].header.frame_id = "map";
+    base_link_transform_publisher_message.transforms[0].child_frame_id = "base_link";
 
     RCLCPP_INFO(get_node()->get_logger(), "configure successful");
     return controller_interface::CallbackReturn::SUCCESS;
@@ -82,6 +115,24 @@ namespace wheeled_biped_controller
   {
     rt_command_ptr_ = realtime_tools::RealtimeBuffer<std::shared_ptr<CmdType>>(nullptr);
 
+    // Populate the command interfaces map
+    for (auto& command_interface : command_interfaces_)
+    {
+        command_interfaces_map_[command_interface.get_prefix_name()].emplace(
+            command_interface.get_interface_name(),
+            std::ref(command_interface)
+        );
+    }
+
+    // Populate the state interfaces map
+    for (auto& state_interface : state_interfaces_)
+    {
+        state_interfaces_map_[state_interface.get_prefix_name()].emplace(
+            state_interface.get_interface_name(),
+            std::ref(state_interface)
+        );
+    }
+
     RCLCPP_INFO(get_node()->get_logger(), "activate successful");
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -94,7 +145,7 @@ namespace wheeled_biped_controller
   }
 
   controller_interface::return_type WheeledBipedController::update(
-      const rclcpp::Time & time, const rclcpp::Duration & period)
+      const rclcpp::Time &time, const rclcpp::Duration &period)
   {
     auto command = rt_command_ptr_.readFromRT();
     if (!command)
@@ -122,24 +173,36 @@ namespace wheeled_biped_controller
       z_vel_des_ = 0.0;
     z_des_ = std::clamp(z_des_, params_.z_min, params_.z_max);
 
-    // read joint states from hardware interface
-    double right_hip_pos = state_interfaces_map_.at(params_.right_hip_name).at("position")->get_value();
-    double right_hip_vel = state_interfaces_map_.at(params_.right_hip_name).at("velocity")->get_value();
-    double right_hip_torque = state_interfaces_map_.at(params_.right_hip_name).at("effort")->get_value();
-    double right_wheel_pos = state_interfaces_map_.at(params_.right_wheel_name).at("position")->get_value();
-    double right_wheel_vel = state_interfaces_map_.at(params_.right_wheel_name).at("velocity")->get_value();
-    double left_hip_pos = state_interfaces_map_.at(params_.left_hip_name).at("position")->get_value();
-    double left_hip_vel = state_interfaces_map_.at(params_.left_hip_name).at("velocity")->get_value();
-    double left_hip_torque = state_interfaces_map_.at(params_.left_hip_name).at("effort")->get_value();
-    double left_wheel_pos = state_interfaces_map_.at(params_.left_wheel_name).at("position")->get_value();
-    double left_wheel_vel = state_interfaces_map_.at(params_.left_wheel_name).at("velocity")->get_value();
+    double right_hip_pos, right_hip_vel, right_hip_torque;
+    double right_wheel_pos, right_wheel_vel;
+    double left_hip_pos, left_hip_vel, left_hip_torque;
+    double left_wheel_pos, left_wheel_vel;
+    double orientation_w, orientation_x, orientation_y, orientation_z;
 
-    // read IMU states from hardware interface
-    pitch_vel_ = state_interfaces_map_.at(params_.imu_sensor_name).at("angular_velocity.y")->get_value();
-    double orientation_w = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.w")->get_value();
-    double orientation_x = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.x")->get_value();
-    double orientation_y = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.y")->get_value();
-    double orientation_z = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.z")->get_value();
+    try {
+      // read joint states from hardware interface
+      right_hip_pos = state_interfaces_map_.at(params_.right_hip_name).at("position").get().get_value();
+      right_hip_vel = state_interfaces_map_.at(params_.right_hip_name).at("velocity").get().get_value();
+      right_hip_torque = state_interfaces_map_.at(params_.right_hip_name).at("effort").get().get_value();
+      right_wheel_pos = state_interfaces_map_.at(params_.right_wheel_name).at("position").get().get_value();
+      right_wheel_vel = state_interfaces_map_.at(params_.right_wheel_name).at("velocity").get().get_value();
+      left_hip_pos = state_interfaces_map_.at(params_.left_hip_name).at("position").get().get_value();
+      left_hip_vel = state_interfaces_map_.at(params_.left_hip_name).at("velocity").get().get_value();
+      left_hip_torque = state_interfaces_map_.at(params_.left_hip_name).at("effort").get().get_value();
+      left_wheel_pos = state_interfaces_map_.at(params_.left_wheel_name).at("position").get().get_value();
+      left_wheel_vel = state_interfaces_map_.at(params_.left_wheel_name).at("velocity").get().get_value();
+
+      // read IMU states from hardware interface
+      pitch_vel_ = state_interfaces_map_.at(params_.imu_sensor_name).at("angular_velocity.y").get().get_value();
+      orientation_w = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.w").get().get_value();
+      orientation_x = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.x").get().get_value();
+      orientation_y = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.y").get().get_value();
+      orientation_z = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.z").get().get_value();
+    }
+    catch (const std::out_of_range& e) {
+      RCLCPP_INFO(get_node()->get_logger(), "failed to read joint states from hardware interface");
+      return controller_interface::return_type::OK;
+    }
 
     // compensate for opposite directions on left/right (flip so everything is in the same direction)
     right_hip_pos = -right_hip_pos;
@@ -203,8 +266,8 @@ namespace wheeled_biped_controller
 
       // apply balancing/yaw controllers
       double balance_control_force = linear_controller<4>({x_, x_vel_, pitch_, pitch_vel_},
-                                                         {x_des_, x_vel_des_, pitch_des_, pitch_vel_des_},
-                                                         {x_kp, x_kd, pitch_kp, pitch_kd});
+                                                          {x_des_, x_vel_des_, pitch_des_, pitch_vel_des_},
+                                                          {x_kp, x_kd, pitch_kp, pitch_kd});
       double yaw_control_force = linear_controller<2>({yaw_, yaw_vel_}, {yaw_des_, yaw_vel_des_}, {params_.yaw_kp, params_.yaw_kd});
 
       // give the balance control force strict priority over the yaw control force
@@ -231,25 +294,63 @@ namespace wheeled_biped_controller
     right_hip_pos_cmd = -right_hip_pos_cmd;
 
     // write commands to hardware interface
-    command_interfaces_map_.at(params_.left_hip_name).at("position")->set_value(left_hip_pos_cmd);
-    command_interfaces_map_.at(params_.left_hip_name).at("kp")->set_value(params_.hip_kp);
-    command_interfaces_map_.at(params_.left_hip_name).at("kd")->set_value(params_.hip_kd);
-    command_interfaces_map_.at(params_.right_hip_name).at("position")->set_value(right_hip_pos_cmd);
-    command_interfaces_map_.at(params_.right_hip_name).at("kp")->set_value(params_.hip_kp);
-    command_interfaces_map_.at(params_.right_hip_name).at("kd")->set_value(params_.hip_kd);
-    command_interfaces_map_.at(params_.left_wheel_name).at("effort")->set_value(left_wheel_torque_cmd);
-    command_interfaces_map_.at(params_.right_wheel_name).at("effort")->set_value(right_wheel_torque_cmd);
+    // command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_cmd);
+    // command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(params_.hip_kp);
+    // command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(params_.hip_kd);
+    // command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_cmd);
+    // command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(params_.hip_kp);
+    // command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(params_.hip_kd);
+    // command_interfaces_map_.at(params_.left_wheel_name).at("effort").get().set_value(left_wheel_torque_cmd);
+    // command_interfaces_map_.at(params_.right_wheel_name).at("effort").get().set_value(right_wheel_torque_cmd);
 
-    // TODO: publish state if enough time has passed since the last publish
-    // if ((time - last_publish_time_) > 1.0 / params_.publish_rate)
-    // {
-    //   last_publish_time_ = time;
-    // }
+    // publish state if enough time has passed since the last publish
+    if ((time - last_publish_time_).seconds() > 1.0 / params_.publish_rate)
+    {
+      last_publish_time_ = time;
+
+      // std::cout << "publishing state" << std::endl;
+
+      // Log the state
+      RCLCPP_INFO(get_node()->get_logger(), "x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f",
+                  x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_);
+
+      // if (realtime_odometry_publisher_->trylock())
+      // {
+      //   auto &odometry_message = realtime_odometry_publisher_->msg_;
+      //   odometry_message.header.stamp = time;
+      //   odometry_message.pose.pose.position.x = odometry_.getX();
+      //   odometry_message.pose.pose.position.y = odometry_.getY();
+      //   odometry_message.pose.pose.orientation.x = orientation.x();
+      //   odometry_message.pose.pose.orientation.y = orientation.y();
+      //   odometry_message.pose.pose.orientation.z = orientation.z();
+      //   odometry_message.pose.pose.orientation.w = orientation.w();
+      //   odometry_message.twist.twist.linear.x = odometry_.getLinear();
+      //   odometry_message.twist.twist.angular.z = odometry_.getAngular();
+      //   realtime_odometry_publisher_->unlockAndPublish();
+      // }
+
+      // if (realtime_base_link_transform_publisher_->trylock())
+      // {
+      //   return controller_interface::return_type::ERROR;
+      //   auto &transform = realtime_base_link_transform_publisher_->msg_.transforms.front();
+      //   transform.header.stamp = time;
+      //   transform.transform.translation.x = x_;
+      //   transform.transform.translation.y = 0.0;
+      //   transform.transform.translation.z = z_;
+      //   transform.transform.rotation.x = orientation_x;
+      //   transform.transform.rotation.y = orientation_y;
+      //   transform.transform.rotation.z = orientation_z;
+      //   transform.transform.rotation.w = orientation_w;
+      //   realtime_odometry_transform_publisher_->unlockAndPublish();
+      // } else {
+      //   std::cout << "failed to publish transform" << std::endl;
+      // }
+    }
 
     return controller_interface::return_type::OK;
   }
 
-  double WheeledBipedController::interpolate(double x, const std::vector<double>& x_vals, const std::vector<double>& y_vals)
+  double WheeledBipedController::interpolate(double x, const std::vector<double> &x_vals, const std::vector<double> &y_vals)
   {
     // Interpolates a value y for a given x using linear interpolation over a set of points
     // x_vals and y_vals must be the same size
@@ -303,3 +404,8 @@ namespace wheeled_biped_controller
     return output;
   }
 } // namespace wheeled_biped_controller
+
+#include "pluginlib/class_list_macros.hpp"
+PLUGINLIB_EXPORT_CLASS(
+    wheeled_biped_controller::WheeledBipedController,
+    controller_interface::ControllerInterface)

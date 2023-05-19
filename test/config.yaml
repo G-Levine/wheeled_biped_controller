@@ -1,0 +1,6 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 500  # Hz
+
+    wheeled_biped_controller:
+      type: wheeled_biped_controller/WheeledBipedController
