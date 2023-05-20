@@ -18,10 +18,10 @@ wheeled_biped_controller:
     yaw_kp: 50.0
     yaw_kd: 25.0
 
-    hip_kp: 30.0
-    hip_kd: 3.0
+    hip_kp: 50.0
+    hip_kd: 5.0
 
-    z_max: 0.325
+    z_max: 0.3
 
     contact_force_threshold: 1.0
     friction_coefficient: 2.0
