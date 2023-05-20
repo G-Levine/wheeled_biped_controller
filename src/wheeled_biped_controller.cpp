@@ -12,6 +12,7 @@
 #include "rclcpp/qos.hpp"
 
 #define EPSILON 1e-6
+#define NUM_JOINTS 6
 
 namespace wheeled_biped_controller
 {
@@ -59,17 +60,17 @@ namespace wheeled_biped_controller
         { rt_command_ptr_.writeFromNonRT(msg); });
 
     // Initialize the publishers
-    odometry_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
-        "/odom", rclcpp::SystemDefaultsQoS());
-    realtime_odometry_publisher_ =
-        std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
-            odometry_publisher_);
+    // odometry_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
+    //     "~/odom", rclcpp::SystemDefaultsQoS());
+    // realtime_odometry_publisher_ =
+    //     std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
+    //         odometry_publisher_);
 
-    odometry_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
-        "/tf", rclcpp::SystemDefaultsQoS());
-    realtime_odometry_transform_publisher_ =
-        std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
-            odometry_transform_publisher_);
+    // odometry_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
+    //     "~/tf", rclcpp::SystemDefaultsQoS());
+    // realtime_odometry_transform_publisher_ =
+    //     std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
+    //         odometry_transform_publisher_);
 
     joint_state_publisher_ = get_node()->create_publisher<sensor_msgs::msg::JointState>(
         "/joint_states", rclcpp::SystemDefaultsQoS());
@@ -78,19 +79,25 @@ namespace wheeled_biped_controller
             joint_state_publisher_);
 
     base_link_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
-        "/tf", rclcpp::SystemDefaultsQoS());
+        "~/tf", rclcpp::SystemDefaultsQoS());
     realtime_base_link_transform_publisher_ =
         std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
             base_link_transform_publisher_);
 
-    auto & odometry_message = realtime_odometry_publisher_->msg_;
-    odometry_message.header.frame_id = "odom";
-    odometry_message.child_frame_id = "base_link";
+    // auto & odometry_message = realtime_odometry_publisher_->msg_;
+    // odometry_message.header.frame_id = "odom";
+    // odometry_message.child_frame_id = "base_link";
 
     auto & base_link_transform_publisher_message = realtime_base_link_transform_publisher_->msg_;
     base_link_transform_publisher_message.transforms.resize(1);
     base_link_transform_publisher_message.transforms[0].header.frame_id = "map";
     base_link_transform_publisher_message.transforms[0].child_frame_id = "base_link";
+
+    auto & joint_state_message = realtime_joint_state_publisher_->msg_;
+    joint_state_message.name = {params_.right_hip_name, params_.right_knee_name, params_.right_wheel_name, params_.left_hip_name, params_.left_knee_name, params_.left_wheel_name};
+    joint_state_message.position.resize(NUM_JOINTS);
+    joint_state_message.velocity.resize(NUM_JOINTS);
+    joint_state_message.effort.resize(NUM_JOINTS);
 
     RCLCPP_INFO(get_node()->get_logger(), "configure successful");
     return controller_interface::CallbackReturn::SUCCESS;
@@ -320,12 +327,9 @@ namespace wheeled_biped_controller
     if (params_.publish_rate && (time - last_publish_time_).seconds() > 1.0 / params_.publish_rate)
     {
       last_publish_time_ = time;
-
-      // std::cout << "publishing state" << std::endl;
-
       // Log the state
-      RCLCPP_INFO(get_node()->get_logger(), "rate: %f, x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f, left_wheel_normal_force: %f, right_wheel_normal_force: %f",
-                  1.0 / period.seconds(), x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_, left_wheel_normal_force, right_wheel_normal_force);
+      // RCLCPP_INFO(get_node()->get_logger(), "rate: %f, x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f, left_wheel_normal_force: %f, right_wheel_normal_force: %f",
+      //             1.0 / period.seconds(), x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_, left_wheel_normal_force, right_wheel_normal_force);
 
       // if (realtime_odometry_publisher_->trylock())
       // {
@@ -342,22 +346,32 @@ namespace wheeled_biped_controller
       //   realtime_odometry_publisher_->unlockAndPublish();
       // }
 
-      // if (realtime_base_link_transform_publisher_->trylock())
-      // {
-      //   return controller_interface::return_type::ERROR;
-      //   auto &transform = realtime_base_link_transform_publisher_->msg_.transforms.front();
-      //   transform.header.stamp = time;
-      //   transform.transform.translation.x = x_;
-      //   transform.transform.translation.y = 0.0;
-      //   transform.transform.translation.z = z_;
-      //   transform.transform.rotation.x = orientation_x;
-      //   transform.transform.rotation.y = orientation_y;
-      //   transform.transform.rotation.z = orientation_z;
-      //   transform.transform.rotation.w = orientation_w;
-      //   realtime_odometry_transform_publisher_->unlockAndPublish();
-      // } else {
-      //   std::cout << "failed to publish transform" << std::endl;
-      // }
+      if (realtime_base_link_transform_publisher_->trylock())
+      {
+        auto &transform = realtime_base_link_transform_publisher_->msg_.transforms.front();
+        transform.header.stamp = time;
+        transform.transform.translation.x = x_;
+        transform.transform.translation.y = 0.0;
+        transform.transform.translation.z = z_;
+        transform.transform.rotation.x = orientation_x;
+        transform.transform.rotation.y = orientation_y;
+        transform.transform.rotation.z = orientation_z;
+        transform.transform.rotation.w = orientation_w;
+        realtime_base_link_transform_publisher_->unlockAndPublish();
+      }
+
+      if (realtime_joint_state_publisher_->trylock())
+      {
+        auto &joint_state_message = realtime_joint_state_publisher_->msg_;
+        joint_state_message.header.stamp = time;
+        joint_state_message.position[0] = state_interfaces_map_.at(params_.right_hip_name).at("position").get().get_value();
+        joint_state_message.position[1] = -2.0 * state_interfaces_map_.at(params_.right_hip_name).at("position").get().get_value();
+        joint_state_message.position[2] = state_interfaces_map_.at(params_.right_wheel_name).at("position").get().get_value();
+        joint_state_message.position[3] = state_interfaces_map_.at(params_.left_hip_name).at("position").get().get_value();
+        joint_state_message.position[4] = -2.0 * state_interfaces_map_.at(params_.left_hip_name).at("position").get().get_value();
+        joint_state_message.position[5] = state_interfaces_map_.at(params_.left_wheel_name).at("position").get().get_value();
+        realtime_joint_state_publisher_->unlockAndPublish();
+      }
     }
 
     return controller_interface::return_type::OK;

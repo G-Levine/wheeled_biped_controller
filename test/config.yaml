@@ -8,18 +8,18 @@ controller_manager:
 wheeled_biped_controller:
   ros__parameters:
     x_kps: [-600.0, -600.0]
-    pitch_kps: [-600.0, -600.0]
-    x_kds: [-200.0, -200.0] 
+    pitch_kps: [-800.0, -800.0]
+    x_kds: [-300.0, -300.0] 
     pitch_kds: [-75.0, -75.0]
     pitch_offsets: [0.15, 0.15]
 
     yaw_kp: 50.0
     yaw_kd: 15.0
 
-    hip_kp: 50.0
-    hip_kd: 5.0
+    hip_kp: 30.0
+    hip_kd: 3.0
 
     contact_force_threshold: 1.0
     friction_coefficient: 2.0
 
-    publish_rate: 10.0
+    publish_rate: 50.0
