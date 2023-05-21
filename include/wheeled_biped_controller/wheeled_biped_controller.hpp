@@ -106,9 +106,15 @@ namespace wheeled_biped_controller
     // -- Yaw controller
     double yaw_;
     double yaw_vel_;
+    // -- Roll controller
+    double roll_;
+    double roll_vel_;
     // -- Height controller
     double z_;
     double z_vel_;
+    // -- Contact state estimator
+    double left_wheel_normal_force_;
+    double right_wheel_normal_force_;
     // -- Odometry state estimator
     double odom_x_;
     double odom_y_;
@@ -123,6 +129,9 @@ namespace wheeled_biped_controller
     // -- Yaw controller
     double yaw_des_;
     double yaw_vel_des_;
+    // -- Roll controller
+    double roll_des_;
+    double roll_vel_des_;
     // -- Height controller
     double z_des_;
     double z_vel_des_;

@@ -206,6 +206,7 @@ namespace wheeled_biped_controller
 
       // read IMU states from hardware interface
       pitch_vel_ = state_interfaces_map_.at(params_.imu_sensor_name).at("angular_velocity.y").get().get_value();
+      roll_vel_ = state_interfaces_map_.at(params_.imu_sensor_name).at("angular_velocity.x").get().get_value();
       orientation_w = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.w").get().get_value();
       orientation_x = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.x").get().get_value();
       orientation_y = state_interfaces_map_.at(params_.imu_sensor_name).at("orientation.y").get().get_value();
@@ -232,6 +233,7 @@ namespace wheeled_biped_controller
     tf2::Matrix3x3 m(q);
     double imu_roll, imu_pitch, imu_yaw;
     m.getRPY(imu_roll, imu_pitch, imu_yaw);
+    roll_ = imu_roll;
     pitch_ = imu_pitch;
 
     // compensate for base_link and leg orientation/velocity in the wheel position/velocity
@@ -260,21 +262,27 @@ namespace wheeled_biped_controller
     z_ = 0.5 * (left_leg_length + right_leg_length);
 
     // estimate contact forces
-    double left_wheel_normal_force = -left_hip_torque / (2.0 * sin(left_hip_pos) * params_.leg_link_length + EPSILON);
-    double right_wheel_normal_force = -right_hip_torque / (2.0 * sin(right_hip_pos) * params_.leg_link_length + EPSILON);
+    double left_leg_lever_arm = 2.0 * sin(left_hip_pos) * params_.leg_link_length + EPSILON;
+    double right_leg_lever_arm = 2.0 * sin(right_hip_pos) * params_.leg_link_length + EPSILON;
+
+    left_wheel_normal_force_ = (1 - params_.normal_force_filter_alpha) * left_wheel_normal_force_ + params_.normal_force_filter_alpha * (-left_hip_torque / left_leg_lever_arm);
+    right_wheel_normal_force_ = (1 - params_.normal_force_filter_alpha) * right_wheel_normal_force_ + params_.normal_force_filter_alpha * (-right_hip_torque / right_leg_lever_arm);
 
     double left_wheel_torque_cmd = 0.0;
     double right_wheel_torque_cmd = 0.0;
 
+    double left_hip_torque_cmd = 0.0;
+    double right_hip_torque_cmd = 0.0;
+
     // if contact forces are too small, assume the robot is in the air and reset the desired state
-    if (left_wheel_normal_force < params_.contact_force_threshold || right_wheel_normal_force < params_.contact_force_threshold)
+    if (left_wheel_normal_force_ < params_.contact_force_threshold || right_wheel_normal_force_ < params_.contact_force_threshold)
     {
       x_des_ = x_;
       yaw_des_ = yaw_;
       x_vel_des_ = 0.0;
       yaw_vel_des_ = 0.0;
     }
-    // otherwise, the robot is on the ground and we should apply the balancing/yaw controllers
+    // otherwise, the robot is on the ground and we should apply the balancing/yaw/roll controllers
     else
     {
       // get controller gains and pitch offset for the current z height
@@ -291,7 +299,7 @@ namespace wheeled_biped_controller
       double yaw_control_force = linear_controller<2>({yaw_, yaw_vel_}, {yaw_des_, yaw_vel_des_}, {params_.yaw_kp, params_.yaw_kd});
 
       // give the balance control force strict priority over the yaw control force
-      double friction_max_force = abs(2.0 * fmaxf(0.0, fminf(left_wheel_normal_force, right_wheel_normal_force)) * params_.friction_coefficient);
+      double friction_max_force = abs(2.0 * fmaxf(0.0, fminf(left_wheel_normal_force_, right_wheel_normal_force_)) * params_.friction_coefficient);
       balance_control_force = std::clamp(balance_control_force, -friction_max_force, friction_max_force);
       double friction_margin_force = abs(friction_max_force - abs(balance_control_force));
       yaw_control_force = std::clamp(yaw_control_force, -friction_margin_force, friction_margin_force);
@@ -303,6 +311,19 @@ namespace wheeled_biped_controller
       // convert tangential wheel forces to wheel torques
       left_wheel_torque_cmd = left_wheel_tangential_force * params_.wheel_radius;
       right_wheel_torque_cmd = right_wheel_tangential_force * params_.wheel_radius;
+
+
+      // calculate feedforward torques for the hip actuators using the roll controller
+      // first, calculate the torque around the roll axis
+      double roll_control_torque = linear_controller<2>({roll_, roll_vel_}, {roll_des_, roll_vel_des_}, {params_.roll_kp, params_.roll_kd});
+
+      // then, convert to linear forces for the legs
+      double left_leg_roll_control_force = 0.5 * roll_control_torque / (0.5 * params_.wheel_separation);
+      double right_leg_roll_control_force = -0.5 * roll_control_torque / (0.5 * params_.wheel_separation);
+
+      // then, convert to torques for the hip actuators by multiplying by the lever arm
+      left_hip_torque_cmd = -left_leg_roll_control_force * left_leg_lever_arm;
+      right_hip_torque_cmd = -right_leg_roll_control_force * right_leg_lever_arm;
     }
 
     // calculate hip position commands from z_des_ and z_vel_des_
@@ -312,14 +333,17 @@ namespace wheeled_biped_controller
     // compensate for opposite directions on left/right (flip so the sides are in opposite directions)
     right_wheel_torque_cmd = -right_wheel_torque_cmd;
     right_hip_pos_cmd = -right_hip_pos_cmd;
+    right_hip_torque_cmd = -right_hip_torque_cmd;
 
     // write commands to hardware interface
     command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_cmd);
     command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(params_.hip_kp);
     command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.left_hip_name).at("effort").get().set_value(left_hip_torque_cmd);
     command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_cmd);
     command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(params_.hip_kp);
     command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(params_.hip_kd);
+    command_interfaces_map_.at(params_.right_hip_name).at("effort").get().set_value(right_hip_torque_cmd);
     command_interfaces_map_.at(params_.left_wheel_name).at("effort").get().set_value(left_wheel_torque_cmd);
     command_interfaces_map_.at(params_.right_wheel_name).at("effort").get().set_value(right_wheel_torque_cmd);
 
@@ -329,7 +353,8 @@ namespace wheeled_biped_controller
       last_publish_time_ = time;
       // Log the state
       // RCLCPP_INFO(get_node()->get_logger(), "rate: %f, x: %f, x_vel: %f, pitch: %f, pitch_vel: %f, yaw: %f, yaw_vel: %f, z: %f, z_vel: %f, left_wheel_normal_force: %f, right_wheel_normal_force: %f",
-      //             1.0 / period.seconds(), x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_, left_wheel_normal_force, right_wheel_normal_force);
+                  // 1.0 / period.seconds(), x_, x_vel_, pitch_, pitch_vel_, yaw_, yaw_vel_, z_, z_vel_, left_wheel_normal_force, right_wheel_normal_force);
+      // std::cout << "z_des: " << z_des_ << "z:" << z_ << "right_hip_pos_cmd: " << right_hip_pos_cmd << "right_hip_pos: " << state_interfaces_map_.at(params_.right_hip_name).at("position").get().get_value() << "left_hip_pos_cmd: " << left_hip_pos_cmd << "left_hip_pos: " << state_interfaces_map_.at(params_.left_hip_name).at("position").get().get_value() << std::endl;
 
       // if (realtime_odometry_publisher_->trylock())
       // {

@@ -94,6 +94,17 @@ wheeled_biped_controller:
     description: 'Derivative gain for the yaw controller (N*m*s/rad)'
   }
 
+  roll_kp: {
+    type: double,
+    default_value: 0.0,
+    description: 'Proportional gain for the roll controller (N*m/rad)'
+  }
+  roll_kd: {
+    type: double,
+    default_value: 0.0,
+    description: 'Derivative gain for the roll controller (N*m*s/rad)'
+  }
+
   x_kps: {
     type: double_array,
     default_value: [7.0, 7.0],
@@ -123,6 +134,12 @@ wheeled_biped_controller:
     type: double_array,
     default_value: [0.07814, 0.3182],
     description: 'Heights for the balancing controller corresponding to the arrays of gains (m)'
+  }
+
+  normal_force_filter_alpha: {
+    type: double,
+    default_value: 0.1,
+    description: 'Alpha value for the exponential moving average filter for the normal force'
   }
 
   publish_rate: {

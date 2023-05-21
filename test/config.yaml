@@ -18,8 +18,11 @@ wheeled_biped_controller:
     yaw_kp: 50.0
     yaw_kd: 25.0
 
-    hip_kp: 50.0
-    hip_kd: 5.0
+    hip_kp: 80.0
+    hip_kd: 8.0
+
+    roll_kp: 10.0
+    roll_kd: 2.0
 
     z_max: 0.3
 
