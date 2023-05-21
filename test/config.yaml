@@ -29,4 +29,5 @@ wheeled_biped_controller:
     contact_force_threshold: 1.0
     friction_coefficient: 2.0
 
-    publish_rate: 50.0
+    publish_rate: 10.0
+    sensor_publish_rate: 0.0
