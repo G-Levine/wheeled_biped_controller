@@ -1,0 +1,46 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 200  # Hz
+
+    wheeled_biped_controller:
+      type: wheeled_biped_controller/WheeledBipedController
+
+wheeled_biped_controller:
+  ros__parameters:
+    x_kps: [-600.0, -600.0]
+    pitch_kps: [-1200.0, -1200.0]
+    x_kds: [-300.0, -300.0] 
+    pitch_kds: [-75.0, -75.0]
+    pitch_offsets: [-0.26, -0.26]
+    # pitch_offsets: [0.5, 0.15]
+    # pitch_offsets: [-0.25, -0.25]
+    balancing_gain_heights: [0.07814, 0.275]
+
+    # max_target_distance: 0.25
+    # max_target_velocity: 0.25
+    
+    max_target_distance: 10.0
+    max_target_velocity: 10.0
+
+    yaw_kp: 50.0
+    yaw_kd: 25.0
+
+    # hip_kp: 80.0
+    # hip_kd: 8.0
+    hip_kp: 30.0
+    hip_kd: 6.0
+
+    roll_kp: 10.0
+    roll_kd: 2.0
+
+    wheel_kd: 0.5
+
+    z_min: 0.15
+    z_max: 0.35
+
+    contact_force_threshold: 1.0
+    friction_coefficient: 2.0
+
+    # publish_rate: 10.0
+    publish_rate: 50.0
+    sensor_publish_rate: 0.0

@@ -1,4 +1,10 @@
 wheeled_biped_controller:
+  use_policy: {
+    type: bool,
+    default_value: true,
+    description: 'Whether to take inputs from the policy'
+  }
+
   left_wheel_name: {
     type: string,
     default_value: 'left_wheel',
@@ -83,6 +89,28 @@ wheeled_biped_controller:
     description: 'Derivative gain for the hip joint (N*m*s/rad)'
   }
 
+  wheel_kp: {
+    type: double,
+    default_value: 0.0,
+    description: 'Proportional gain for the wheel joint (N*m/rad)'
+  }
+  wheel_kd: {
+    type: double,
+    default_value: 6.0,
+    description: 'Derivative gain for the wheel joint (N*m*s/rad)'
+  }
+
+  leg_kp: {
+    type: double,
+    default_value: 0.0,
+    description: 'Proportional gain for the leg prismatic joint (N/m)'
+  }
+  leg_kd: {
+    type: double,
+    default_value: 6.0,
+    description: 'Derivative gain for the leg prismatic joint (N*s/m)'
+  }
+
   yaw_kp: {
     type: double,
     default_value: 1.0,
@@ -92,6 +120,17 @@ wheeled_biped_controller:
     type: double,
     default_value: 1.0,
     description: 'Derivative gain for the yaw controller (N*m*s/rad)'
+  }
+
+  roll_kp: {
+    type: double,
+    default_value: 0.0,
+    description: 'Proportional gain for the roll controller (N*m/rad)'
+  }
+  roll_kd: {
+    type: double,
+    default_value: 0.0,
+    description: 'Derivative gain for the roll controller (N*m*s/rad)'
   }
 
   x_kps: {
@@ -125,8 +164,31 @@ wheeled_biped_controller:
     description: 'Heights for the balancing controller corresponding to the arrays of gains (m)'
   }
 
+  normal_force_filter_alpha: {
+    type: double,
+    default_value: 0.1,
+    description: 'Alpha value for the exponential moving average filter for the normal force'
+  }
+
+  max_target_distance: {
+    type: double,
+    default_value: 0.1,
+    description: 'Maximum distance between the target and the current position (m)'
+  }
+
+  max_target_velocity: {
+    type: double,
+    default_value: 0.1,
+    description: 'Maximum relative velocity between the target and the current position (m/s)'
+  }
+
   publish_rate: {
     type: double,
     default_value: 50.0,
-    description: 'Rate at which to publish the controller state (Hz)'
+    description: 'Rate at which to publish the controller state (Hz). Set to 0 to disable publishing.'
+  }
+  sensor_publish_rate: {
+    type: double,
+    default_value: 50.0,
+    description: 'Rate at which to publish the IMU and odometry messages (Hz). Set to 0 to disable publishing.'
   }

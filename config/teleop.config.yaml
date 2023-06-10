@@ -4,14 +4,17 @@ teleop_twist_joy_node:
       x: 1
       z: 5
     scale_linear:
-      x: -0.5
-      z: -0.5
+      # x: -2.0
+      x: -1.0
+      z: -0.25
 
     axis_angular:
       yaw: 3
     scale_angular:
-      yaw: 0.5
+      # yaw: 1.5
+      yaw: 1.0
 
     require_enable_button: false
+    deadzone: 0.05
 
   # ros2 launch teleop_twist_joy teleop-launch.py config_filepath:='/home/pi/ros2_ws/src/wheeled_biped_controller/config/teleop.config.yaml'
