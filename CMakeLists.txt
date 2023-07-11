@@ -5,7 +5,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-add_library(wheeled_biped_controller SHARED src/wheeled_biped_controller.cpp)
+add_library(wheeled_biped_controller SHARED src/wheeled_biped_controller.cpp src/isaac_gym_policy.cpp)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
@@ -22,6 +22,7 @@ find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_msgs REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(Torch REQUIRED)
 
 generate_parameter_library(
   wheeled_biped_controller_parameters # cmake target name for the parameter library
@@ -29,6 +30,7 @@ generate_parameter_library(
 )
 
 target_link_libraries(wheeled_biped_controller wheeled_biped_controller_parameters)
+target_link_libraries(wheeled_biped_controller ${TORCH_LIBRARIES})
 
 target_include_directories(wheeled_biped_controller PRIVATE include)
 

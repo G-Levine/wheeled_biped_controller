@@ -5,6 +5,18 @@ wheeled_biped_controller:
     description: 'Whether to take inputs from the policy'
   }
 
+  checkpoint_path: {
+    type: string,
+    default_value: '/home/pi/policy_lstm_1.pt',
+    description: 'Path to the policy checkpoint'
+  }
+
+  default_lever_arm: {
+    type: double,
+    default_value: 0.32,
+    description: 'Default lever arm for calculating hip gains from z-axis gains (m)'
+  }
+
   left_wheel_name: {
     type: string,
     default_value: 'left_wheel',
@@ -182,6 +194,12 @@ wheeled_biped_controller:
     description: 'Maximum relative velocity between the target and the current position (m/s)'
   }
 
+  command_deadband: {
+    type: double,
+    default_value: 0.1,
+    description: 'Deadband for velocity commands'
+  }
+
   publish_rate: {
     type: double,
     default_value: 50.0,
@@ -191,4 +209,10 @@ wheeled_biped_controller:
     type: double,
     default_value: 50.0,
     description: 'Rate at which to publish the IMU and odometry messages (Hz). Set to 0 to disable publishing.'
+  }
+
+  policy_rate: {
+    type: double,
+    default_value: 50.0,
+    description: 'Rate at which to run the policy.'
   }

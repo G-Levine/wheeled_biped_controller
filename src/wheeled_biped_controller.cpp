@@ -46,6 +46,8 @@ namespace wheeled_biped_controller
   controller_interface::CallbackReturn WheeledBipedController::on_configure(
       const rclcpp_lifecycle::State & /*previous_state*/)
   {
+    policy_ = new IsaacGymPolicy(params_.checkpoint_path);
+
     x_des_ = 0.0;
     x_vel_des_ = 0.0;
     pitch_des_ = 0.0;
@@ -57,6 +59,7 @@ namespace wheeled_biped_controller
 
     last_publish_time_ = get_node()->now();
     last_sensor_publish_time_ = get_node()->now();
+    last_policy_time_ = get_node()->now();
 
     // Initialize the command subscriber
     cmd_subscriber_ = get_node()->create_subscription<CmdType>(
@@ -213,37 +216,11 @@ namespace wheeled_biped_controller
       const rclcpp::Time &time, const rclcpp::Duration &period)
   {
     auto command = rt_command_ptr_.readFromRT();
-    auto action = rt_action_ptr_.readFromRT();
 
     double left_wheel_vel_action = 0.0;
     double right_wheel_vel_action = 0.0;
     double left_leg_pos_action = -params_.z_min;
     double right_leg_pos_action = -params_.z_min;
-
-    if (params_.use_policy)
-    {
-      if (!action)
-      {
-        RCLCPP_WARN(get_node()->get_logger(), "no action received");
-        return controller_interface::return_type::OK;
-      }
-
-      // update desired velocities if the command exists
-      if (action->get())
-      {
-        left_leg_pos_action = action->get()->data[0];
-        left_wheel_vel_action = action->get()->data[1];
-        right_leg_pos_action = action->get()->data[2];
-        right_wheel_vel_action = action->get()->data[3];
-        // std::cout << left_leg_pos_action << "\t" << left_wheel_vel_action << "\t" << right_leg_pos_action << "\t" << right_wheel_vel_action << "\t";
-
-        // sanitize
-        left_leg_pos_action = std::clamp(left_leg_pos_action, -params_.z_max, -params_.z_min);
-        left_wheel_vel_action = std::clamp(left_wheel_vel_action, -20.0, 20.0);
-        right_leg_pos_action = std::clamp(right_leg_pos_action, -params_.z_max, -params_.z_min);
-        right_wheel_vel_action = std::clamp(right_wheel_vel_action, -20.0, 20.0);
-      }
-    }
 
     if (!command)
     {
@@ -254,9 +231,10 @@ namespace wheeled_biped_controller
     // update desired velocities if the command exists
     if (command->get())
     {
-      x_vel_des_ = std::clamp(command->get()->linear.x, x_vel_ - params_.max_target_velocity, x_vel_ + params_.max_target_velocity);
-      yaw_vel_des_ = command->get()->angular.z;
-      z_vel_des_ = command->get()->linear.z;
+      // x_vel_des_ = std::clamp(command->get()->linear.x, x_vel_ - params_.max_target_velocity, x_vel_ + params_.max_target_velocity);
+      x_vel_des_ = std::abs(command->get()->linear.x) < params_.command_deadband ? 0.0 : command->get()->linear.x;
+      yaw_vel_des_ = std::abs(command->get()->angular.z) < params_.command_deadband ? 0.0 : command->get()->angular.z;
+      z_vel_des_ = std::abs(command->get()->linear.z) < params_.command_deadband ? 0.0 : command->get()->linear.z;
     }
 
     // integrate the desired velocities to obtain desired positions
@@ -388,7 +366,7 @@ namespace wheeled_biped_controller
     pitch_des_ = interpolate(z_, params_.balancing_gain_heights, params_.pitch_offsets);
 
     tf2::Quaternion rotation_quat;
-    rotation_quat.setRPY(0, -pitch_des_, 0);
+    rotation_quat.setRPY(0, pitch_des_, 0);
 
     tf2::Vector3 world_gravity_vector(0, 0, -1);
     tf2::Vector3 projected_gravity_vector = m.inverse() * world_gravity_vector;
@@ -452,26 +430,79 @@ namespace wheeled_biped_controller
     double left_leg_linear_vel = -left_hip_vel * left_leg_lever_arm;
     double right_leg_linear_vel = -right_hip_vel * right_leg_lever_arm;
 
-    double left_hip_pos_action = acos(-left_leg_pos_action / (2.0 * params_.leg_link_length));
-    double right_hip_pos_action = -acos(-right_leg_pos_action / (2.0 * params_.leg_link_length));
-
     if (params_.use_policy)
     {
-      command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(left_leg_lever_arm * 30.0 / 0.16);
-      command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(left_leg_lever_arm * 6.0 / 0.16);
-      command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(right_leg_lever_arm * 30.0 / 0.16);
-      command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(right_leg_lever_arm * 6.0 / 0.16);
+      if (params_.policy_rate && (time - last_policy_time_).seconds() > 1.0 / params_.policy_rate)
+      {
+        // std::cout << (time - last_policy_time_).seconds() << "\n";
+        last_policy_time_ = time;
+        std::array<double, 21> policy_observations;
 
-      command_interfaces_map_.at(params_.left_wheel_name).at("kp").get().set_value(params_.wheel_kp);
-      command_interfaces_map_.at(params_.left_wheel_name).at("kd").get().set_value(params_.wheel_kd);
-      command_interfaces_map_.at(params_.right_wheel_name).at("kp").get().set_value(params_.wheel_kp);
-      command_interfaces_map_.at(params_.right_wheel_name).at("kd").get().set_value(params_.wheel_kd);
+        // Base angular velocity
+        policy_observations[0] = roll_vel_;
+        policy_observations[1] = pitch_vel_;
+        policy_observations[2] = imu_yaw_vel;
 
-      command_interfaces_map_.at(params_.left_wheel_name).at("velocity").get().set_value(left_wheel_vel_action);
-      command_interfaces_map_.at(params_.right_wheel_name).at("velocity").get().set_value(right_wheel_vel_action);
+        // World down vector in the base link frame
+        policy_observations[3] = projected_gravity_vector[0];
+        policy_observations[4] = projected_gravity_vector[1];
+        policy_observations[5] = projected_gravity_vector[2];
 
-      command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_action);
-      command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_action);
+        // Commands
+        policy_observations[6] = x_vel_des_;
+        policy_observations[7] = 0.0;
+        policy_observations[8] = yaw_vel_des_;
+
+        // Joint positions
+        policy_observations[9] = left_leg_linear_pos;
+        policy_observations[10] = state_interfaces_map_.at(params_.left_wheel_name).at("position").get().get_value() - state_interfaces_map_.at(params_.left_hip_name).at("position").get().get_value();
+        policy_observations[11] = right_leg_linear_pos;
+        policy_observations[12] = state_interfaces_map_.at(params_.right_wheel_name).at("position").get().get_value() - state_interfaces_map_.at(params_.right_hip_name).at("position").get().get_value();
+
+        // Joint velocities
+        policy_observations[13] = left_leg_linear_vel;
+        policy_observations[14] = state_interfaces_map_.at(params_.left_wheel_name).at("velocity").get().get_value() - state_interfaces_map_.at(params_.left_hip_name).at("velocity").get().get_value();
+        policy_observations[15] = right_leg_linear_vel;
+        policy_observations[16] = state_interfaces_map_.at(params_.right_wheel_name).at("velocity").get().get_value() - state_interfaces_map_.at(params_.right_hip_name).at("velocity").get().get_value();
+
+        // Actions - Assuming these are zeros for now
+        policy_observations[17] = 0.0;
+        policy_observations[18] = 0.0;
+        policy_observations[19] = 0.0;
+        policy_observations[20] = 0.0;
+
+        std::array<double, 4> policy_actions = policy_->step(policy_observations);
+        left_leg_pos_action = policy_actions[0];
+        left_wheel_vel_action = policy_actions[1];
+        right_leg_pos_action = policy_actions[2];
+        right_wheel_vel_action = policy_actions[3];
+        // std::cout << left_leg_pos_action << "\t" << left_wheel_vel_action << "\t" << right_leg_pos_action << "\t" << right_wheel_vel_action << "\t";
+
+        // sanitize
+        left_leg_pos_action = std::clamp(left_leg_pos_action, -params_.z_max, -params_.z_min);
+        left_wheel_vel_action = std::clamp(left_wheel_vel_action, -30.0, 30.0);
+        right_leg_pos_action = std::clamp(right_leg_pos_action, -params_.z_max, -params_.z_min);
+        right_wheel_vel_action = std::clamp(right_wheel_vel_action, -30.0, 30.0);
+
+        double left_hip_pos_action = acos(-left_leg_pos_action / (2.0 * params_.leg_link_length));
+        double right_hip_pos_action = -acos(-right_leg_pos_action / (2.0 * params_.leg_link_length));
+
+        command_interfaces_map_.at(params_.left_hip_name).at("kp").get().set_value(left_leg_lever_arm * params_.hip_kp / params_.default_lever_arm);
+        command_interfaces_map_.at(params_.left_hip_name).at("kd").get().set_value(left_leg_lever_arm * params_.hip_kd / params_.default_lever_arm);
+        command_interfaces_map_.at(params_.right_hip_name).at("kp").get().set_value(right_leg_lever_arm * params_.hip_kp / params_.default_lever_arm);
+        command_interfaces_map_.at(params_.right_hip_name).at("kd").get().set_value(right_leg_lever_arm * params_.hip_kd / params_.default_lever_arm);
+
+        command_interfaces_map_.at(params_.left_wheel_name).at("kp").get().set_value(params_.wheel_kp);
+        command_interfaces_map_.at(params_.left_wheel_name).at("kd").get().set_value(params_.wheel_kd);
+        command_interfaces_map_.at(params_.right_wheel_name).at("kp").get().set_value(params_.wheel_kp);
+        command_interfaces_map_.at(params_.right_wheel_name).at("kd").get().set_value(params_.wheel_kd);
+
+        command_interfaces_map_.at(params_.left_wheel_name).at("velocity").get().set_value(left_wheel_vel_action);
+        command_interfaces_map_.at(params_.right_wheel_name).at("velocity").get().set_value(right_wheel_vel_action);
+
+        command_interfaces_map_.at(params_.left_hip_name).at("position").get().set_value(left_hip_pos_action);
+        command_interfaces_map_.at(params_.right_hip_name).at("position").get().set_value(right_hip_pos_action);
+      }
     }
     else
     {
