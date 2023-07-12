@@ -41,6 +41,9 @@ public:
 private:
     torch::jit::script::Module policy;
     at::Tensor prev_actions;
+    at::Tensor obs_tensor, action_min_tensor, action_max_tensor, default_dof_pos_tensor, action_scales_tensor;
+    at::Tensor processed_obs;
+    at::Tensor actions, actions_scaled;
 };
 
 #endif  // ISAACGYMPOLICY_HPP

@@ -14,22 +14,28 @@ IsaacGymPolicy::IsaacGymPolicy(const std::string &checkpoint_path)
     }
     
     policy.to(torch::kDouble);
-    prev_actions = torch::zeros({NUM_ACTIONS});
+    prev_actions = torch::zeros({NUM_ACTIONS}, torch::kDouble);
+
+    obs_tensor = torch::zeros({NUM_OBS}, torch::kDouble);
+    action_min_tensor = torch::from_blob(const_cast<double*>(ACTION_MIN.data()), {ACTION_MIN.size()}, torch::kDouble);
+    action_max_tensor = torch::from_blob(const_cast<double*>(ACTION_MAX.data()), {ACTION_MAX.size()}, torch::kDouble);
+    default_dof_pos_tensor = torch::from_blob(const_cast<double*>(DEFAULT_DOF_POS.data()), {DEFAULT_DOF_POS.size()}, torch::kDouble);
+    action_scales_tensor = torch::from_blob(const_cast<double*>(ACTION_SCALES.data()), {ACTION_SCALES.size()}, torch::kDouble);
+    
+    processed_obs = torch::zeros_like(obs_tensor);
+    actions = torch::zeros({NUM_ACTIONS}, torch::kDouble);
+    actions_scaled = torch::zeros_like(actions);
 }
 
 std::array<double, NUM_ACTIONS> IsaacGymPolicy::step(const std::array<double, NUM_OBS>& obs_array)
 {
     torch::NoGradGuard no_grad;
 
-    at::Tensor obs = torch::from_blob(const_cast<double*>(obs_array.data()), {NUM_OBS}, torch::kFloat64);
-    
-    at::Tensor action_min_tensor = torch::from_blob(const_cast<double*>(ACTION_MIN.data()), {ACTION_MIN.size()}, torch::kFloat64);
-    at::Tensor action_max_tensor = torch::from_blob(const_cast<double*>(ACTION_MAX.data()), {ACTION_MAX.size()}, torch::kFloat64);
-    at::Tensor default_dof_pos_tensor = torch::from_blob(const_cast<double*>(DEFAULT_DOF_POS.data()), {DEFAULT_DOF_POS.size()}, torch::kFloat64);
-    at::Tensor action_scales_tensor = torch::from_blob(const_cast<double*>(ACTION_SCALES.data()), {ACTION_SCALES.size()}, torch::kFloat64);
+    obs_tensor.copy_(torch::from_blob(const_cast<double*>(obs_array.data()), {NUM_OBS}, torch::kDouble));
 
     // Create a copy of the input tensor for processing
-    at::Tensor processed_obs = obs.clone();
+    processed_obs.copy_(obs_tensor);
+    processed_obs.squeeze_(0);
 
     // Apply transformations
     processed_obs.slice(0,0,3) *= OBS_SCALE_ANG_VEL;
@@ -43,15 +49,15 @@ std::array<double, NUM_ACTIONS> IsaacGymPolicy::step(const std::array<double, NU
     processed_obs.slice(0,17,21) = prev_actions;
 
     // Run through model
-    processed_obs = at::unsqueeze(processed_obs, 0);
-    at::Tensor actions = at::squeeze(policy.forward({processed_obs}).toTensor());
+    processed_obs.unsqueeze_(0);
+    actions.copy_(at::squeeze(policy.forward({processed_obs}).toTensor()));
 
     // Post-processing
-    at::Tensor actions_scaled = actions.mul(action_scales_tensor).add(default_dof_pos_tensor);
-    actions_scaled = actions_scaled.clamp(action_min_tensor, action_max_tensor);
+    actions_scaled.copy_(actions.mul(action_scales_tensor).add(default_dof_pos_tensor));
+    actions_scaled.clamp_(action_min_tensor, action_max_tensor);
 
-    prev_actions = actions.clamp((action_min_tensor - default_dof_pos_tensor) / action_scales_tensor,
-                                (action_max_tensor - default_dof_pos_tensor) / action_scales_tensor);
+    prev_actions.copy_(actions.clamp((action_min_tensor - default_dof_pos_tensor) / action_scales_tensor,
+                                (action_max_tensor - default_dof_pos_tensor) / action_scales_tensor));
 
     std::array<double, NUM_ACTIONS> actions_array;
     std::memcpy(actions_array.data(), actions_scaled.data_ptr<double>(), NUM_ACTIONS * sizeof(double));
